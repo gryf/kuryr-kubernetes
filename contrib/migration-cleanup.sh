@@ -1,25 +1,23 @@
 #!/bin/bash
 
-local clusterID
-local clusterTag
-
 clusterID=$(oc get infrastructure.config.openshift.io cluster -o=jsonpath='{.status.infrastructureName}')
 clusterTag="openshiftClusterID=${clusterID}"
 
 removeNamespacedFinalizers () {
     local resource=$1
+    local finalizer=$2
 
-    IFS=$'\n'
-    for res in `oc get $resource -A --no-headers -o custom-columns=":metadata.name,:metadata.namespace"`; do
-        name=`echo $res | awk '{print $1}'`
-        ns=`echo $res | awk '{print $2}'`
-        oc get -n $ns $res $name -o json | jq -Mcr "if .metadata.finalizers != null then del(.metadata.finalizers[] | select(. == \"${finalizer}\")) else . end" | oc replace -n $ns $res $name -f -
+    for res in $(oc get $resource -A --template='{{range $i,$p := .items}}{{ $p.metadata.name }}|{{ $p.metadata.namespace }}{{"\n"}}{{end}}'); do
+        name=${res%%|*}
+        ns=${res##*|}
+        oc get -n $ns $resource $name -o json | \
+            jq -Mcr "if .metadata.finalizers != null then del(.metadata.finalizers[] | select(. == \"${finalizer}\")) else . end" | \
+            oc replace -n $ns $resource $name -f -
     done
-    unset IFS
 }
 
 echo "Removing Kuryr finalizers from all Services"
-removeNamespacedFinalizers services
+removeNamespacedFinalizers services kuryr.openstack.org/service-finalizer
 
 echo "Removing all tagged loadbalancers from Octavia"
 for lb in `openstack loadbalancer list --tags $clusterTag -f value -c id`; do
@@ -27,16 +25,26 @@ for lb in `openstack loadbalancer list --tags $clusterTag -f value -c id`; do
 done
 
 echo "Removing Kuryr finalizers from all KuryrLoadBalancer CRs. This will trigger their deletion"
-removeNamespacedFinalizers kuryrloadbalancers.openstack.org
+removeNamespacedFinalizers kuryrloadbalancers.openstack.org kuryr.openstack.org/kuryrloadbalancer-finalizers
 
 echo "Removing Kuryr service network"
 openstack network delete kuryr-service-network-${clusterID}
 
 echo "Removing Kuryr finalizers from all pods"
-removeNamespacedFinalizers pods
+removeNamespacedFinalizers pods kuryr.openstack.org/pod-finalizer
 
 echo "Removing Kuryr finalizers from all KuryrPort CRs. This will trigger their deletion"
-removeNamespacedFinalizers kuryrports.openstack.org
+removeNamespacedFinalizers kuryrports.openstack.org kuryr.openstack.org/kuryrport-finalizer
+
+echo "Removing Kuryr finalizers from all Network Policies"
+removeNamespacedFinalizers networkpolicy kuryr.openstack.org/networkpolicy-finalizer
+
+echo "Removing Kuryr network policies"
+for sgid in $(openstack security group list -f value -c ID -c Description | grep 'Kuryr-Kubernetes Network Policy' | cut -f 1 -d ' '); do
+    openstack security group rule delete $(openstack security group rule list $sgid -f value -c ID | xargs)
+    openstack security group delete $sgid
+done
+removeNamespacedFinalizers kuryrnetworkpolicies.openstack.org kuryr.openstack.org/networkpolicy-finalizer
 
 echo "Remove subports created by Kuryr from trunks"
 # TODO(dulek): Filtering trunks by tags - not supported by openstackclient, got to do it manually
@@ -106,8 +114,6 @@ done
 
 # Remove finalizers from KuryrNetwork CRs.
 removeNamespacedFinalizers kuryrnetworks.openstack.org
-
-# TODO(dulek): KNPs
 
 # FIXME(dulek): This has to be documented and decision to delete it has to be made by user. We have no way
 #               to figure out if it CNO who created it.

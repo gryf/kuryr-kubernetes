@@ -246,3 +246,12 @@
             api_settings:
               enabled_provider_drivers: amphora:'Octavia Amphora driver'
     voting: false
+
+- job:
+    name: kuryr-kubernetes-tempest-sctp
+    parent: kuryr-kubernetes-octavia-base
+    description: |
+      Kuryr-Kubernetes tempest job using octavia and running kuryr with SCTP
+    vars:
+      devstack_localrc:
+        KURYR_POD_SECURITY_RESTRICTED: false

@@ -119,6 +119,9 @@ failSwapOn: false
 address: "0.0.0.0"
 enableServer: true
 cgroupDriver: $cgroup_driver
+imageMinimumGCAge: 1h
+imageGCHighThresholdPercent: 98
+imageGCLowThresholdPercent: 95
 EOF
     sudo kubeadm config images pull --image-repository=${KURYR_KUBEADMIN_IMAGE_REPOSITORY}
     args="--config ${output_dir}/kubeadm-init.yaml"
@@ -187,6 +190,9 @@ failSwapOn: false
 address: "0.0.0.0"
 enableServer: true
 cgroupDriver: $cgroup_driver
+imageMinimumGCAge: 1h
+imageGCHighThresholdPercent: 98
+imageGCLowThresholdPercent: 95
 EOF
     sudo -E kubeadm join --ignore-preflight-errors Swap \
         --config ${output_dir}/kubeadm-join.yaml
